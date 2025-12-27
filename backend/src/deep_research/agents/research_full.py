@@ -15,7 +15,7 @@ input through final report delivery.
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, START, END
 
-from deep_research.utils import get_today_str, init_model
+from deep_research.utils.common import get_today_str, init_model
 from deep_research.prompts import final_report_generation_prompt
 from deep_research.state.scope import AgentState, AgentInputState
 from deep_research.agents.research_scope import clarify_with_user, write_research_brief

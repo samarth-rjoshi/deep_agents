@@ -32,7 +32,7 @@ from deep_research.state.supervisor import (
     ConductResearch, 
     ResearchComplete
 )
-from deep_research.utils import get_today_str, think_tool, init_model
+from deep_research.utils.common import get_today_str, think_tool, init_model
 
 def get_notes_from_tool_calls(messages: list[BaseMessage]) -> list[str]:
     """Extract research notes from ToolMessage objects in supervisor message history.

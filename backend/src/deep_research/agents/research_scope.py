@@ -19,7 +19,7 @@ from langgraph.types import Command
 
 from deep_research.prompts import clarify_with_user_instructions, transform_messages_into_research_topic_prompt
 from deep_research.state.scope import AgentState, ClarifyWithUser, ResearchQuestion, AgentInputState
-from deep_research.utils import init_model
+from deep_research.utils.common import init_model
 
 # ===== UTILITY FUNCTIONS =====
 

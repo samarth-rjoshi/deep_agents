@@ -13,7 +13,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, fi
 
 
 from deep_research.state.research import ResearcherState, ResearcherOutputState
-from deep_research.utils import tavily_search, get_today_str, think_tool, init_model
+from deep_research.utils.common import tavily_search, get_today_str, think_tool, init_model
 from deep_research.prompts import research_agent_prompt, compress_research_system_prompt, compress_research_human_message
 
 # ===== CONFIGURATION =====

@@ -25,7 +25,7 @@ from langgraph.graph import StateGraph, START, END
 
 from deep_research.prompts import research_agent_prompt_with_mcp, compress_research_system_prompt, compress_research_human_message
 from deep_research.state.research import ResearcherState, ResearcherOutputState
-from deep_research.utils import get_today_str, think_tool, get_current_dir, init_model
+from deep_research.utils.common import get_today_str, think_tool, get_current_dir, init_model
 
 # ===== CONFIGURATION =====
 
