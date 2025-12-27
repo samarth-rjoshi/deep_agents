@@ -26,6 +26,7 @@ from langgraph.graph import StateGraph, START, END
 from deep_research.prompts import research_agent_prompt_with_mcp, compress_research_system_prompt, compress_research_human_message
 from deep_research.state.research import ResearcherState, ResearcherOutputState
 from deep_research.utils.common import get_today_str, think_tool, get_current_dir, init_model
+from deep_research.utils.logger import logger
 
 # ===== CONFIGURATION =====
 
@@ -68,24 +69,29 @@ async def llm_call(state: ResearcherState):
 
     Returns updated state with model response.
     """
-    # Get available tools from MCP server
-    client = get_mcp_client()
-    mcp_tools = await client.get_tools()
+    try:
+        logger.info("Starting LLM call for research agent")
+        # Get available tools from MCP server
+        client = get_mcp_client()
+        mcp_tools = await client.get_tools()
 
-    # Use MCP tools for local document access
-    tools = mcp_tools + [think_tool]
+        # Use MCP tools for local document access
+        tools = mcp_tools + [think_tool]
 
-    # Initialize model with tool binding
-    model_with_tools = model.bind_tools(tools)
+        # Initialize model with tool binding
+        model_with_tools = model.bind_tools(tools)
 
-    # Process user input with system prompt
-    return {
-        "researcher_messages": [
-            model_with_tools.invoke(
-                [SystemMessage(content=research_agent_prompt_with_mcp.format(date=get_today_str()))] + state["researcher_messages"]
-            )
-        ]
-    }
+        # Process user input with system prompt
+        return {
+            "researcher_messages": [
+                model_with_tools.invoke(
+                    [SystemMessage(content=research_agent_prompt_with_mcp.format(date=get_today_str()))] + state["researcher_messages"]
+                )
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error in llm_call: {e}", exc_info=True)
+        raise e
 
 async def tool_node(state: ResearcherState):
     """Execute tool calls using MCP tools.
@@ -98,43 +104,48 @@ async def tool_node(state: ResearcherState):
     Note: MCP requires async operations due to inter-process communication
     with the MCP server subprocess. This is unavoidable.
     """
-    tool_calls = state["researcher_messages"][-1].tool_calls
+    try:
+        logger.info("Starting tool execution")
+        tool_calls = state["researcher_messages"][-1].tool_calls
 
-    async def execute_tools():
-        """Execute all tool calls. MCP tools require async execution."""
-        # Get fresh tool references from MCP server
-        client = get_mcp_client()
-        mcp_tools = await client.get_tools()
-        tools = mcp_tools + [think_tool]
-        tools_by_name = {tool.name: tool for tool in tools}
+        async def execute_tools():
+            """Execute all tool calls. MCP tools require async execution."""
+            # Get fresh tool references from MCP server
+            client = get_mcp_client()
+            mcp_tools = await client.get_tools()
+            tools = mcp_tools + [think_tool]
+            tools_by_name = {tool.name: tool for tool in tools}
 
-        # Execute tool calls (sequentially for reliability)
-        observations = []
-        for tool_call in tool_calls:
-            tool = tools_by_name[tool_call["name"]]
-            if tool_call["name"] == "think_tool":
-                # think_tool is sync, use regular invoke
-                observation = tool.invoke(tool_call["args"])
-            else:
-                # MCP tools are async, use ainvoke
-                observation = await tool.ainvoke(tool_call["args"])
-            observations.append(observation)
+            # Execute tool calls (sequentially for reliability)
+            observations = []
+            for tool_call in tool_calls:
+                tool = tools_by_name[tool_call["name"]]
+                if tool_call["name"] == "think_tool":
+                    # think_tool is sync, use regular invoke
+                    observation = tool.invoke(tool_call["args"])
+                else:
+                    # MCP tools are async, use ainvoke
+                    observation = await tool.ainvoke(tool_call["args"])
+                observations.append(observation)
 
-        # Format results as tool messages
-        tool_outputs = [
-            ToolMessage(
-                content=observation,
-                name=tool_call["name"],
-                tool_call_id=tool_call["id"],
-            )
-            for observation, tool_call in zip(observations, tool_calls)
-        ]
+            # Format results as tool messages
+            tool_outputs = [
+                ToolMessage(
+                    content=observation,
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"],
+                )
+                for observation, tool_call in zip(observations, tool_calls)
+            ]
 
-        return tool_outputs
+            return tool_outputs
 
-    messages = await execute_tools()
+        messages = await execute_tools()
 
-    return {"researcher_messages": messages}
+        return {"researcher_messages": messages}
+    except Exception as e:
+        logger.error(f"Error in tool_node: {e}", exc_info=True)
+        raise e
 
 def compress_research(state: ResearcherState) -> dict:
     """Compress research findings into a concise summary.
@@ -145,24 +156,28 @@ def compress_research(state: ResearcherState) -> dict:
     This function filters out think_tool calls and focuses on substantive
     file-based research content from MCP tools.
     """
+    try:
+        logger.info("Compressing research findings")
+        system_message = compress_research_system_prompt.format(date=get_today_str())
+        messages = [SystemMessage(content=system_message)] + state.get("researcher_messages", []) + [HumanMessage(content=compress_research_human_message)]
 
-    system_message = compress_research_system_prompt.format(date=get_today_str())
-    messages = [SystemMessage(content=system_message)] + state.get("researcher_messages", []) + [HumanMessage(content=compress_research_human_message)]
+        response = compress_model.invoke(messages)
 
-    response = compress_model.invoke(messages)
+        # Extract raw notes from tool and AI messages
+        raw_notes = [
+            str(m.content) for m in filter_messages(
+                state["researcher_messages"], 
+                include_types=["tool", "ai"]
+            )
+        ]
 
-    # Extract raw notes from tool and AI messages
-    raw_notes = [
-        str(m.content) for m in filter_messages(
-            state["researcher_messages"], 
-            include_types=["tool", "ai"]
-        )
-    ]
-
-    return {
-        "compressed_research": str(response.content),
-        "raw_notes": ["\n".join(raw_notes)]
-    }
+        return {
+            "compressed_research": str(response.content),
+            "raw_notes": ["\n".join(raw_notes)]
+        }
+    except Exception as e:
+        logger.error(f"Error in compress_research: {e}", exc_info=True)
+        raise e
 
 # ===== ROUTING LOGIC =====
 

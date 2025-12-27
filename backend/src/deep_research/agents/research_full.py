@@ -20,6 +20,7 @@ from deep_research.prompts import final_report_generation_prompt
 from deep_research.state.scope import AgentState, AgentInputState
 from deep_research.agents.research_scope import clarify_with_user, write_research_brief
 from deep_research.agents.supervisor import supervisor_agent
+from deep_research.utils.logger import logger
 
 # ===== Config =====
 
@@ -37,23 +38,27 @@ async def final_report_generation(state: AgentState):
 
     Synthesizes all research findings into a comprehensive final report
     """
+    try:
+        logger.info("Generating final report")
+        notes = state.get("notes", [])
 
-    notes = state.get("notes", [])
+        findings = "\n".join(notes)
 
-    findings = "\n".join(notes)
+        final_report_prompt = final_report_generation_prompt.format(
+            research_brief=state.get("research_brief", ""),
+            findings=findings,
+            date=get_today_str()
+        )
 
-    final_report_prompt = final_report_generation_prompt.format(
-        research_brief=state.get("research_brief", ""),
-        findings=findings,
-        date=get_today_str()
-    )
+        final_report = await writer_model.ainvoke([HumanMessage(content=final_report_prompt)])
 
-    final_report = await writer_model.ainvoke([HumanMessage(content=final_report_prompt)])
-
-    return {
-        "final_report": final_report.content, 
-        "messages": ["Here is the final report: " + final_report.content],
-    }
+        return {
+            "final_report": final_report.content, 
+            "messages": ["Here is the final report: " + final_report.content],
+        }
+    except Exception as e:
+        logger.error(f"Error in final_report_generation: {e}", exc_info=True)
+        raise e
 
 # ===== GRAPH CONSTRUCTION =====
 # Build the overall workflow

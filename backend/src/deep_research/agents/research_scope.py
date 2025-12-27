@@ -20,6 +20,7 @@ from langgraph.types import Command
 from deep_research.prompts import clarify_with_user_instructions, transform_messages_into_research_topic_prompt
 from deep_research.state.scope import AgentState, ClarifyWithUser, ResearchQuestion, AgentInputState
 from deep_research.utils.common import init_model
+from deep_research.utils.logger import logger
 
 # ===== UTILITY FUNCTIONS =====
 
@@ -44,28 +45,33 @@ def clarify_with_user(state: AgentState) -> Command[Literal["write_research_brie
     Uses structured output to make deterministic decisions and avoid hallucination.
     Routes to either research brief generation or ends with a clarification question.
     """
-    # Set up structured output model
-    structured_output_model = model.with_structured_output(ClarifyWithUser)
+    try:
+        logger.info("Clarifying with user")
+        # Set up structured output model
+        structured_output_model = model.with_structured_output(ClarifyWithUser)
 
-    # Invoke the model with clarification instructions
-    response = structured_output_model.invoke([
-        HumanMessage(content=clarify_with_user_instructions.format(
-            messages=get_buffer_string(messages=state["messages"]), 
-            date=get_today_str()
-        ))
-    ])
+        # Invoke the model with clarification instructions
+        response = structured_output_model.invoke([
+            HumanMessage(content=clarify_with_user_instructions.format(
+                messages=get_buffer_string(messages=state["messages"]), 
+                date=get_today_str()
+            ))
+        ])
 
-    # Route based on clarification need
-    if response.need_clarification:
-        return Command(
-            goto=END, 
-            update={"messages": [AIMessage(content=response.question)]}
-        )
-    else:
-        return Command(
-            goto="write_research_brief", 
-            update={"messages": [AIMessage(content=response.verification)]}
-        )
+        # Route based on clarification need
+        if response.need_clarification:
+            return Command(
+                goto=END, 
+                update={"messages": [AIMessage(content=response.question)]}
+            )
+        else:
+            return Command(
+                goto="write_research_brief", 
+                update={"messages": [AIMessage(content=response.verification)]}
+            )
+    except Exception as e:
+        logger.error(f"Error in clarify_with_user: {e}", exc_info=True)
+        raise e
 
 def write_research_brief(state: AgentState):
     """
@@ -74,22 +80,27 @@ def write_research_brief(state: AgentState):
     Uses structured output to ensure the brief follows the required format
     and contains all necessary details for effective research.
     """
-    # Set up structured output model
-    structured_output_model = model.with_structured_output(ResearchQuestion)
+    try:
+        logger.info("Writing research brief")
+        # Set up structured output model
+        structured_output_model = model.with_structured_output(ResearchQuestion)
 
-    # Generate research brief from conversation history
-    response = structured_output_model.invoke([
-        HumanMessage(content=transform_messages_into_research_topic_prompt.format(
-            messages=get_buffer_string(state.get("messages", [])),
-            date=get_today_str()
-        ))
-    ])
+        # Generate research brief from conversation history
+        response = structured_output_model.invoke([
+            HumanMessage(content=transform_messages_into_research_topic_prompt.format(
+                messages=get_buffer_string(state.get("messages", [])),
+                date=get_today_str()
+            ))
+        ])
 
-    # Update state with generated research brief and pass it to the supervisor
-    return {
-        "research_brief": response.research_brief,
-        "supervisor_messages": [HumanMessage(content=f"{response.research_brief}.")]
-    }
+        # Update state with generated research brief and pass it to the supervisor
+        return {
+            "research_brief": response.research_brief,
+            "supervisor_messages": [HumanMessage(content=f"{response.research_brief}.")]
+        }
+    except Exception as e:
+        logger.error(f"Error in write_research_brief: {e}", exc_info=True)
+        raise e
 
 # ===== GRAPH CONSTRUCTION =====
 

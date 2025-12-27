@@ -15,6 +15,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, fi
 from deep_research.state.research import ResearcherState, ResearcherOutputState
 from deep_research.utils.common import tavily_search, get_today_str, think_tool, init_model
 from deep_research.prompts import research_agent_prompt, compress_research_system_prompt, compress_research_human_message
+from deep_research.utils.logger import logger
 
 # ===== CONFIGURATION =====
 
@@ -43,13 +44,18 @@ def llm_call(state: ResearcherState):
 
     Returns updated state with the model's response.
     """
-    return {
-        "researcher_messages": [
-            model_with_tools.invoke(
-                [SystemMessage(content=research_agent_prompt)] + state["researcher_messages"]
-            )
-        ]
-    }
+    try:
+        logger.info("Starting LLM call")
+        return {
+            "researcher_messages": [
+                model_with_tools.invoke(
+                    [SystemMessage(content=research_agent_prompt)] + state["researcher_messages"]
+                )
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error in llm_call: {e}", exc_info=True)
+        raise e
 
 def tool_node(state: ResearcherState):
     """Execute all tool calls from the previous LLM response.
@@ -57,24 +63,29 @@ def tool_node(state: ResearcherState):
     Executes all tool calls from the previous LLM responses.
     Returns updated state with tool execution results.
     """
-    tool_calls = state["researcher_messages"][-1].tool_calls
+    try:
+        logger.info("Starting tool execution")
+        tool_calls = state["researcher_messages"][-1].tool_calls
 
-    # Execute all tool calls
-    observations = []
-    for tool_call in tool_calls:
-        tool = tools_by_name[tool_call["name"]]
-        observations.append(tool.invoke(tool_call["args"]))
+        # Execute all tool calls
+        observations = []
+        for tool_call in tool_calls:
+            tool = tools_by_name[tool_call["name"]]
+            observations.append(tool.invoke(tool_call["args"]))
 
-    # Create tool message outputs
-    tool_outputs = [
-        ToolMessage(
-            content=observation,
-            name=tool_call["name"],
-            tool_call_id=tool_call["id"]
-        ) for observation, tool_call in zip(observations, tool_calls)
-    ]
+        # Create tool message outputs
+        tool_outputs = [
+            ToolMessage(
+                content=observation,
+                name=tool_call["name"],
+                tool_call_id=tool_call["id"]
+            ) for observation, tool_call in zip(observations, tool_calls)
+        ]
 
-    return {"researcher_messages": tool_outputs}
+        return {"researcher_messages": tool_outputs}
+    except Exception as e:
+        logger.error(f"Error in tool_node: {e}", exc_info=True)
+        raise e
 
 def compress_research(state: ResearcherState) -> dict:
     """Compress research findings into a concise summary.
@@ -82,23 +93,27 @@ def compress_research(state: ResearcherState) -> dict:
     Takes all the research messages and tool outputs and creates
     a compressed summary suitable for the supervisor's decision-making.
     """
+    try:
+        logger.info("Compressing research findings")
+        system_message = compress_research_system_prompt.format(date=get_today_str())
+        messages = [SystemMessage(content=system_message)] + state.get("researcher_messages", []) + [HumanMessage(content=compress_research_human_message)]
+        response = compress_model.invoke(messages)
 
-    system_message = compress_research_system_prompt.format(date=get_today_str())
-    messages = [SystemMessage(content=system_message)] + state.get("researcher_messages", []) + [HumanMessage(content=compress_research_human_message)]
-    response = compress_model.invoke(messages)
+        # Extract raw notes from tool and AI messages
+        raw_notes = [
+            str(m.content) for m in filter_messages(
+                state["researcher_messages"], 
+                include_types=["tool", "ai"]
+            )
+        ]
 
-    # Extract raw notes from tool and AI messages
-    raw_notes = [
-        str(m.content) for m in filter_messages(
-            state["researcher_messages"], 
-            include_types=["tool", "ai"]
-        )
-    ]
-
-    return {
-        "compressed_research": str(response.content),
-        "raw_notes": ["\n".join(raw_notes)]
-    }
+        return {
+            "compressed_research": str(response.content),
+            "raw_notes": ["\n".join(raw_notes)]
+        }
+    except Exception as e:
+        logger.error(f"Error in compress_research: {e}", exc_info=True)
+        raise e
 
 # ===== ROUTING LOGIC =====
 

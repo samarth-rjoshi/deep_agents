@@ -33,6 +33,7 @@ from deep_research.state.supervisor import (
     ResearchComplete
 )
 from deep_research.utils.common import get_today_str, think_tool, init_model
+from deep_research.utils.logger import logger
 
 def get_notes_from_tool_calls(messages: list[BaseMessage]) -> list[str]:
     """Extract research notes from ToolMessage objects in supervisor message history.
@@ -98,26 +99,31 @@ async def supervisor(state: SupervisorState) -> Command[Literal["supervisor_tool
     Returns:
         Command to proceed to supervisor_tools node with updated state
     """
-    supervisor_messages = state.get("supervisor_messages", [])
+    try:
+        logger.info("Supervisor Agent started")
+        supervisor_messages = state.get("supervisor_messages", [])
 
-    # Prepare system message with current date and constraints
-    system_message = lead_researcher_prompt.format(
-        date=get_today_str(), 
-        max_concurrent_research_units=max_concurrent_researchers,
-        max_researcher_iterations=max_researcher_iterations
-    )
-    messages = [SystemMessage(content=system_message)] + supervisor_messages
+        # Prepare system message with current date and constraints
+        system_message = lead_researcher_prompt.format(
+            date=get_today_str(), 
+            max_concurrent_research_units=max_concurrent_researchers,
+            max_researcher_iterations=max_researcher_iterations
+        )
+        messages = [SystemMessage(content=system_message)] + supervisor_messages
 
-    # Make decision about next research steps
-    response = await supervisor_model_with_tools.ainvoke(messages)
+        # Make decision about next research steps
+        response = await supervisor_model_with_tools.ainvoke(messages)
 
-    return Command(
-        goto="supervisor_tools",
-        update={
-            "supervisor_messages": [response],
-            "research_iterations": state.get("research_iterations", 0) + 1
-        }
-    )
+        return Command(
+            goto="supervisor_tools",
+            update={
+                "supervisor_messages": [response],
+                "research_iterations": state.get("research_iterations", 0) + 1
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error in supervisor: {e}", exc_info=True)
+        raise e
 
 async def supervisor_tools(state: SupervisorState) -> Command[Literal["supervisor", "__end__"]]:
     """Execute supervisor decisions - either conduct research or end the process.
@@ -134,6 +140,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
     Returns:
         Command to continue supervision, end process, or handle errors
     """
+    logger.info("Starting supervisor tools execution")
     supervisor_messages = state.get("supervisor_messages", [])
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
@@ -218,7 +225,7 @@ async def supervisor_tools(state: SupervisorState) -> Command[Literal["superviso
                 ]
 
         except Exception as e:
-            print(f"Error in supervisor tools: {e}")
+            logger.error(f"Error in supervisor tools: {e}", exc_info=True)
             should_end = True
             next_step = END
 
